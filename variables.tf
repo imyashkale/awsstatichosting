@@ -42,3 +42,9 @@ variable "enable_url_rewrite_function" {
   type        = bool
   default     = true
 }
+
+variable "enable_cf_logging" {
+  description = "When true, creates a dedicated S3 bucket and enables CloudFront access logging."
+  type        = bool
+  default     = false
+}
