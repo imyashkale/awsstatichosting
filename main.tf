@@ -70,6 +70,27 @@ data "aws_iam_policy_document" "cloudfront_oac_access" {
   }
 }
 
+# ── CloudFront Access Logs Bucket ────────────────────────────────────────────
+
+resource "aws_s3_bucket" "cf_logs" {
+  count  = var.enable_cf_logging ? 1 : 0
+  bucket = "${replace(var.domain_name, ".", "-")}-${var.environment}-cf-logs"
+
+  tags = {
+    Name        = "${replace(var.domain_name, ".", "-")}-${var.environment}-cf-logs"
+    Environment = var.environment
+  }
+}
+
+resource "aws_s3_bucket_ownership_controls" "cf_logs" {
+  count  = var.enable_cf_logging ? 1 : 0
+  bucket = aws_s3_bucket.cf_logs[0].id
+
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
+}
+
 # ── ACM Certificate (us-east-1, required by CloudFront) ─────────────────────
 
 resource "aws_acm_certificate" "website" {
@@ -182,6 +203,15 @@ resource "aws_cloudfront_distribution" "website" {
     domain_name              = aws_s3_bucket.website.bucket_regional_domain_name
     origin_id                = local.s3_origin_id
     origin_access_control_id = aws_cloudfront_origin_access_control.website.id
+  }
+
+  dynamic "logging_config" {
+    for_each = var.enable_cf_logging ? [1] : []
+    content {
+      bucket          = aws_s3_bucket.cf_logs[0].bucket_domain_name
+      prefix          = "${var.domain_name}/"
+      include_cookies = false
+    }
   }
 
   default_cache_behavior {

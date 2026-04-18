@@ -48,11 +48,17 @@ S3 (private origin) → CloudFront (CDN + OAC) → Route53 (DNS) + ACM (TLS)
 │  │     /about/    → /about/index.html                         │
 │  │     /style.css → /style.css  (unchanged, has extension)    │
 │  │                                                            │
-│  └── SPA Error Handling (spa_mode)                            │
-│      403 → 200 /index.html                                    │
-│      404 → 200 /index.html                                    │
-│      Lets client-side router (React Router, Vue Router)       │
-│      handle all routes.                                       │
+│  ├── SPA Error Handling (spa_mode)                            │
+│  │   403 → 200 /index.html                                    │
+│  │   404 → 200 /index.html                                    │
+│  │   Lets client-side router (React Router, Vue Router)       │
+│  │   handle all routes.                                       │
+│  │                                                            │
+│  └── Access Logging (enable_cf_logging)                       │
+│      Every request logged to a dedicated S3 bucket:           │
+│        Client IP, User-Agent, URI, timestamp, bytes served    │
+│      Logs arrive within ~5–10 minutes. Query with Athena      │
+│      or download for grep/analysis.                           │
 │                                                               │
 │  Origin Access Control (OAC):                                 │
 │  Every request to S3 is signed with SigV4. No direct          │
@@ -217,6 +223,7 @@ module "docs_site" {
 | `price_class` | `string` | `"PriceClass_100"` | Determines which CloudFront edge locations serve your content. Affects both performance (latency) and cost. Options: `PriceClass_100` — North America + Europe (cheapest). `PriceClass_200` — adds Asia, Middle East, Africa. `PriceClass_All` — all 450+ edge locations globally (most expensive). |
 | `spa_mode` | `bool` | `true` | When enabled, CloudFront returns `/index.html` with a `200` status for both `403` and `404` errors from S3. This allows client-side routers (React Router, Vue Router, Angular Router) to handle all URL paths. The error response is cached for 10 seconds. Set to `false` for static-site generators where every route has a corresponding file in S3. |
 | `enable_url_rewrite_function` | `bool` | `true` | When enabled, creates and attaches a CloudFront Function that runs on every viewer request. The function rewrites directory-style URIs to their `index.html` equivalent: `/about` becomes `/about/index.html`, `/about/` becomes `/about/index.html`. URIs with a file extension (e.g. `/style.css`, `/app.js`) are left unchanged. When disabled, no CloudFront Function resource is created at all — nothing is attached to the distribution. Disable this for pure SPA apps where `spa_mode` alone handles routing. |
+| `enable_cf_logging` | `bool` | `false` | When enabled, creates a dedicated S3 bucket (`{domain-dashed}-{env}-cf-logs`) and turns on CloudFront access logging. Every request is logged with client IP, User-Agent, URI, timestamp, HTTP status, and bytes served. Logs land in S3 within ~5–10 minutes under the prefix `{domain_name}/`. Use Athena or download and grep for specific time windows. The log bucket uses `BucketOwnerPreferred` ownership so CloudFront's ACL-based writes are accessible to your account. |
 
 ### Choosing `spa_mode` vs `enable_url_rewrite_function`
 
@@ -273,7 +280,7 @@ aws cloudfront create-invalidation \
 ```
 .
 ├── main.tf              # All resources — S3, CloudFront, ACM, Route53
-├── variables.tf         # Module input interface (7 variables)
+├── variables.tf         # Module input interface (8 variables)
 ├── outputs.tf           # Module outputs (8 values)
 ├── versions.tf          # required_providers with configuration_aliases
 ├── locals.tf            # Derived values (bucket name, origin ID)
@@ -307,3 +314,5 @@ aws cloudfront create-invalidation \
 | `aws_cloudfront_origin_access_control` | `{project}-{env}-oac` | Always |
 | `aws_cloudfront_distribution` | `{project}-{env} static website` | Always |
 | `aws_cloudfront_function` | `{project}-{env}-url-rewrite` | `enable_url_rewrite_function` |
+| `aws_s3_bucket` (logs) | `{domain-dashed}-{env}-cf-logs` | `enable_cf_logging` |
+| `aws_s3_bucket_ownership_controls` (logs) | — | `enable_cf_logging` |
